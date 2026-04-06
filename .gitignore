@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Local caches / model downloads
+embeddings/
+
+# Do not commit personal face photos
+data/known_faces/**/*
+!data/known_faces/**/README.txt
+
