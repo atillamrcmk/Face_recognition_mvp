@@ -4,6 +4,7 @@ Yerel webcam üzerinden kayıtlı kişileri tanıma — uygulama giriş noktası
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
@@ -20,6 +21,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from app import config
 from app.camera import Camera
 from app.detector import create_face_app, extract_faces
+from app.media import ImageFileSource, VideoFileSource
 from app.recognizer import load_registered_identities
 from app.temporal import TemporalScoreSmoother
 from app.ui import draw_face_overlay, draw_fps, draw_hint_bar, draw_status_banner
@@ -35,7 +37,17 @@ def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Yerel yuz tanima demo (webcam / image / video).")
+    g = p.add_mutually_exclusive_group(required=False)
+    g.add_argument("--image", type=str, help="Tek bir resim dosyasi yolu (jpg/png).")
+    g.add_argument("--video", type=str, help="Video dosyasi yolu (mp4/avi).")
+    p.add_argument("--camera", type=int, default=None, help="Webcam index (varsayilan config).")
+    return p.parse_args()
+
+
 def run() -> None:
+    args = _parse_args()
     force_rebuild = _env_flag("FACE_MVP_REBUILD_EMBEDDINGS")
 
     if not config.KNOWN_FACES_ROOT.is_dir():
@@ -77,10 +89,16 @@ def run() -> None:
         window=config.TEMPORAL_WINDOW,
         match_dist_px=config.TEMPORAL_MATCH_DIST_PX,
     )
+    source_desc = "webcam"
+    if args.image:
+        source_desc = f"image: {args.image}"
+    elif args.video:
+        source_desc = f"video: {args.video}"
     logger.info(
-        "Hazir. Kisiler: %s | Benzerlik esigi=%.2f | Tespit esigi det>=%.2f | "
-        "zaman yumusatma=%s kare. Kamera aciliyor...",
+        "Hazir. Kisiler: %s | Kaynak=%s | Benzerlik esigi=%.2f | Tespit esigi det>=%.2f | "
+        "zaman yumusatma=%s kare.",
         ", ".join(recognizer.identity_names),
+        source_desc,
         recognizer.threshold,
         config.MIN_DET_SCORE,
         config.TEMPORAL_WINDOW,
@@ -90,14 +108,26 @@ def run() -> None:
         "(2) Terminalde Ctrl+C"
     )
 
+    source = None
+    cam = None
     try:
-        cam = Camera(index=config.CAMERA_INDEX)
-        cam.open()
+        if args.image:
+            source = ImageFileSource(Path(args.image))
+        elif args.video:
+            source = VideoFileSource(Path(args.video))
+        else:
+            cam_index = config.CAMERA_INDEX if args.camera is None else int(args.camera)
+            cam = Camera(index=cam_index)
+            cam.open()
+            source = cam
     except RuntimeError as e:
         logger.error("%s", e)
+        if args.image or args.video:
+            logger.error("Dosya acilamadi. Yolu ve dosya uzantisini kontrol edin.")
+            sys.exit(5)
         logger.error(
             "Kamera kullanilamiyor. Baska program kamerali kapatmayi deneyin; "
-            "veya app/config.py icinde CAMERA_INDEX degerini (0, 1, ...) degistirin."
+            "veya --camera 0/1 deneyin (config CAMERA_INDEX degerini de degistirebilirsiniz)."
         )
         sys.exit(4)
 
@@ -112,11 +142,14 @@ def run() -> None:
     try:
         while True:
             try:
-                ok, frame = cam.read_bgr()
+                ok, frame = source.read_bgr()  # type: ignore[union-attr]
             except KeyboardInterrupt:
                 logger.info("Ctrl+C ile cikis.")
                 break
             if not ok:
+                if args.image:
+                    # Resimde tek kare gösterdik; kullanıcı tuşla kapatsın.
+                    break
                 logger.warning("Kare okunamadi, dongu sonlaniyor.")
                 break
 
@@ -187,7 +220,8 @@ def run() -> None:
 
             cv2.imshow(window, frame)
             try:
-                key = cv2.waitKey(1) & 0xFF
+                wait = 0 if args.image else 1
+                key = cv2.waitKey(wait) & 0xFF
             except KeyboardInterrupt:
                 logger.info("Ctrl+C ile cikis.")
                 break
@@ -197,7 +231,12 @@ def run() -> None:
     except KeyboardInterrupt:
         logger.info("Ctrl+C ile cikis.")
     finally:
-        cam.release()
+        try:
+            if source is not None:
+                source.release()  # type: ignore[union-attr]
+        finally:
+            if cam is not None:
+                cam.release()
         cv2.destroyAllWindows()
 
 

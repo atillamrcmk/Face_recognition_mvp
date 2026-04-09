@@ -89,6 +89,20 @@ python main.py
 - Çıkış: Önce **video penceresine tıklayın** (odak orada olmalı), sonra **q** veya **ESC**. Alternatif: programı çalıştırdığınız **terminalde Ctrl+C** (bazen iki kez gerekebilir).
 - Pencere başlığı ve parametreler `app/config.py` içindedir.
 
+### Fotoğraf veya video ile çalıştırma
+
+Webcam yerine dosyadan analiz için:
+
+```powershell
+# Tek fotoğraf
+python main.py --image "C:\path\to\photo.jpg"
+
+# Video dosyası
+python main.py --video "C:\path\to\video.mp4"
+```
+
+İpucu: Video dosyasında performans düşükse `FRAME_SCALE` ve `PROCESS_EVERY_N_FRAMES` ayarlarını kullanın.
+
 ### Embedding önbelleğini zorla yeniden üretme
 
 ```powershell
